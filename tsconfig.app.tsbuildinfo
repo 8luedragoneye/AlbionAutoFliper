@@ -1,0 +1,1 @@
+{"root":["./src/app.tsx","./src/main.tsx","./src/api/albionapi.ts","./src/api/types.ts","./src/components/cityselect.tsx","./src/components/filters.tsx","./src/components/itemselect.tsx","./src/components/markettable.tsx","./src/components/modetoggle.tsx","./src/utils/metrics.ts"],"version":"5.9.3"}
