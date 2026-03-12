@@ -7,7 +7,7 @@ export function computeMarketMetrics(
   sellPrice: number,
   history: HistoryPoint[],
 ): MarketMetrics {
-  const silverProfit = Math.max(0, sellPrice - buyPrice);
+  const silverProfit = sellPrice - buyPrice;
   const profitPercent = buyPrice > 0 ? (silverProfit / buyPrice) * 100 : null;
   const itemsSoldPerDay = averageDailyVolume(history, HISTORY_WINDOW_DAYS);
   const sellFrequency = classifySellFrequency(itemsSoldPerDay);
