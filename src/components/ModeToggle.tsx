@@ -22,6 +22,13 @@ export default function ModeToggle({ mode, onChange }: ModeToggleProps) {
       >
         Many Items vs 1 City
       </button>
+      <button
+        type="button"
+        className={mode === "best-flips-auto" ? "active" : ""}
+        onClick={() => onChange("best-flips-auto")}
+      >
+        Best Flips Auto
+      </button>
     </div>
   );
 }

@@ -1,6 +1,23 @@
-import { HistoryPoint, MarketMetrics } from "../api/types";
+import {
+  FlipCandidateRow,
+  HistoryPoint,
+  MarketMetrics,
+  PriceResponseRow,
+} from "../api/types";
 
 const HISTORY_WINDOW_DAYS = 7;
+export const TAX_RATE_PREMIUM = 0.04;
+export const SETUP_FEE = 0.025;
+export const OVERCUT_FACTOR = 1.01;
+export const UNDERCUT_FACTOR = 0.99;
+export const MIN_PROFIT_PER_UNIT = 200;
+export const MIN_MARGIN_PCT = 10;
+export const MIN_DAILY_VOLUME = 150;
+export const ESTIMATED_DEPTH_RATIO = 0.1;
+export const MIN_ESTIMATED_DEPTH = 20;
+export const MAX_SUGGESTED_BUY_QUANTITY = 2000;
+export const SCORE_CAPTURE_RATIO = 0.2;
+export const DEPTH_MULTIPLIER_TARGET = 100;
 
 export function computeMarketMetrics(
   buyPrice: number,
@@ -39,4 +56,63 @@ export function classifySellFrequency(
     return "Medium";
   }
   return "High";
+}
+
+export function computeFlipCandidate(
+  entry: PriceResponseRow,
+  history: HistoryPoint[],
+): FlipCandidateRow | null {
+  const dailyVolume = averageDailyVolume(history, HISTORY_WINDOW_DAYS);
+  if (dailyVolume < MIN_DAILY_VOLUME || entry.sell_price_min <= entry.buy_price_max) {
+    return null;
+  }
+
+  const effectiveBuyPrice = entry.buy_price_max * OVERCUT_FACTOR;
+  const effectiveSellPrice = entry.sell_price_min * UNDERCUT_FACTOR;
+  const netReceivePerUnit =
+    effectiveSellPrice * (1 - SETUP_FEE) * (1 - TAX_RATE_PREMIUM);
+  const totalCostPerUnit = effectiveBuyPrice * (1 + SETUP_FEE);
+  if (totalCostPerUnit <= 0) {
+    return null;
+  }
+
+  const profitPerUnit = netReceivePerUnit - totalCostPerUnit;
+  if (profitPerUnit < MIN_PROFIT_PER_UNIT) {
+    return null;
+  }
+
+  const marginPct = (profitPerUnit / totalCostPerUnit) * 100;
+  if (marginPct < MIN_MARGIN_PCT) {
+    return null;
+  }
+
+  const estimatedDepth = Math.max(dailyVolume * ESTIMATED_DEPTH_RATIO, MIN_ESTIMATED_DEPTH);
+  const suggestedBuyQuantity = Math.max(
+    1,
+    Math.min(Math.floor(estimatedDepth), MAX_SUGGESTED_BUY_QUANTITY),
+  );
+  const baseScore = profitPerUnit * dailyVolume * SCORE_CAPTURE_RATIO;
+  const depthMultiplier = Math.min(1, estimatedDepth / DEPTH_MULTIPLIER_TARGET);
+  const adjustedScore = baseScore * depthMultiplier;
+
+  return {
+    key: `${entry.item_id}|${entry.city}|${entry.quality}`,
+    itemId: entry.item_id,
+    city: entry.city,
+    quality: entry.quality,
+    buyPrice: Math.round(effectiveBuyPrice),
+    sellPrice: Math.round(effectiveSellPrice),
+    profitPerUnit: Math.round(profitPerUnit),
+    marginPct: roundTo(marginPct, 1),
+    dailyVolume,
+    suggestedBuyQuantity,
+    potentialDailyProfit: Math.round(adjustedScore),
+    score: Math.round(adjustedScore),
+    updatedAt: "",
+  };
+}
+
+function roundTo(value: number, digits: number): number {
+  const factor = 10 ** digits;
+  return Math.round(value * factor) / factor;
 }

@@ -1,6 +1,6 @@
 export type ServerRegion = "west" | "east" | "europe";
 
-export type CompareMode = "item-vs-cities" | "items-vs-city";
+export type CompareMode = "item-vs-cities" | "items-vs-city" | "best-flips-auto";
 
 export interface SelectOption {
   value: string;
@@ -54,3 +54,27 @@ export interface MarketViewRow {
   sellFrequency: "Low" | "Medium" | "High";
   updatedAt: string;
 }
+
+export interface FlipCandidateRow {
+  key: string;
+  itemId: string;
+  city: string;
+  quality: number;
+  buyPrice: number;
+  sellPrice: number;
+  profitPerUnit: number;
+  marginPct: number;
+  dailyVolume: number;
+  suggestedBuyQuantity: number;
+  potentialDailyProfit: number;
+  score: number;
+  updatedAt: string;
+}
+
+export interface FilteredItemEntry {
+  index?: number;
+  uniqueName: string;
+  name?: string;
+}
+
+export type MarketTableRow = MarketViewRow | FlipCandidateRow;

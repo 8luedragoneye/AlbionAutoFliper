@@ -39,9 +39,11 @@ export default function Filters(props: FiltersProps) {
   } = props;
 
   const itemMulti = mode === "items-vs-city";
-  const cityMulti = mode === "item-vs-cities";
+  const cityMulti = mode !== "items-vs-city";
   const canLoad =
-    mode === "item-vs-cities"
+    mode === "best-flips-auto"
+      ? selectedCities.length > 0
+      : mode === "item-vs-cities"
       ? selectedItems.length === 1 && selectedCities.length > 0
       : selectedItems.length > 0 && selectedCities.length === 1;
 
@@ -82,12 +84,14 @@ export default function Filters(props: FiltersProps) {
       </div>
 
       <div className="select-grid">
-        <ItemSelect
-          options={itemOptions}
-          selected={selectedItems}
-          onChange={onItemsChange}
-          multi={itemMulti}
-        />
+        {mode !== "best-flips-auto" ? (
+          <ItemSelect
+            options={itemOptions}
+            selected={selectedItems}
+            onChange={onItemsChange}
+            multi={itemMulti}
+          />
+        ) : null}
         <CitySelect
           options={cityOptions}
           selected={selectedCities}

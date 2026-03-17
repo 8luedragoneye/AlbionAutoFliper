@@ -7,15 +7,22 @@ import {
 } from "./api/albionApi";
 import {
   CompareMode,
+  FilteredItemEntry,
+  FlipCandidateRow,
   HistoryResponseGroup,
   MarketViewRow,
+  MarketTableRow,
   PriceResponseRow,
   SelectOption,
   ServerRegion,
 } from "./api/types";
 import Filters from "./components/Filters";
 import MarketTable from "./components/MarketTable";
-import { computeMarketMetrics } from "./utils/metrics";
+import { computeFlipCandidate, computeMarketMetrics } from "./utils/metrics";
+
+const TOP_RESULTS = 20;
+const ITEM_REQUEST_CHUNK_SIZE = 140;
+let filteredItemIdsCache: string[] | null = null;
 
 export default function App() {
   const [mode, setMode] = useState<CompareMode>("item-vs-cities");
@@ -25,7 +32,7 @@ export default function App() {
   const [cityOptions, setCityOptions] = useState<SelectOption[]>([]);
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [selectedCities, setSelectedCities] = useState<string[]>([]);
-  const [rows, setRows] = useState<MarketViewRow[]>([]);
+  const [rows, setRows] = useState<MarketTableRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -37,7 +44,10 @@ export default function App() {
     if (mode === "item-vs-cities") {
       return "Pick exactly 1 item and 1+ cities.";
     }
-    return "Pick 1+ items and exactly 1 city.";
+    if (mode === "items-vs-city") {
+      return "Pick 1+ items and exactly 1 city.";
+    }
+    return "Pick 1+ cities. Best-flip scan uses filtered-items-clean.json.";
   }, [mode]);
 
   const handleModeChange = (next: CompareMode) => {
@@ -77,10 +87,19 @@ export default function App() {
     setError(null);
     setRows([]);
     try {
-      const itemIds =
-        mode === "item-vs-cities" ? selectedItems.slice(0, 1) : selectedItems;
-      const cities =
-        mode === "items-vs-city" ? selectedCities.slice(0, 1) : selectedCities;
+      if (mode === "best-flips-auto") {
+        const bestFlipRows = await loadBestFlipRows(
+          server,
+          selectedCities,
+          quality,
+          itemOptions,
+        );
+        setRows(bestFlipRows);
+        return;
+      }
+
+      const itemIds = mode === "item-vs-cities" ? selectedItems.slice(0, 1) : selectedItems;
+      const cities = mode === "items-vs-city" ? selectedCities.slice(0, 1) : selectedCities;
 
       const [prices, history] = await Promise.all([
         fetchCurrentPrices(server, itemIds, cities, [quality]),
@@ -121,7 +140,7 @@ export default function App() {
       />
 
       <p className="hint">{selectionHint}</p>
-      <MarketTable rows={rows} loading={loading} error={error} />
+      <MarketTable mode={mode} rows={rows} loading={loading} error={error} />
     </main>
   );
 }
@@ -169,6 +188,91 @@ function newestTimestamp(candidates: string[]): string {
   return candidates
     .filter(Boolean)
     .sort((a, b) => new Date(b).getTime() - new Date(a).getTime())[0] ?? "";
+}
+
+async function loadBestFlipRows(
+  server: ServerRegion,
+  cities: string[],
+  quality: number,
+  itemOptions: SelectOption[],
+): Promise<FlipCandidateRow[]> {
+  const metadataItemIds = new Set(itemOptions.map((option) => option.value));
+  const candidateItemIds = (await filteredItemIds()).filter((id) => metadataItemIds.has(id));
+  if (candidateItemIds.length === 0) {
+    throw new Error("No candidate items available in filtered-items-clean.json.");
+  }
+
+  const prices: PriceResponseRow[] = [];
+  const historyGroups: HistoryResponseGroup[] = [];
+  const chunks = chunkValues(candidateItemIds, ITEM_REQUEST_CHUNK_SIZE);
+  for (const itemChunk of chunks) {
+    const [priceChunk, historyChunk] = await Promise.all([
+      fetchCurrentPrices(server, itemChunk, cities, [quality]),
+      fetchHistory(server, itemChunk, cities, [quality], 24),
+    ]);
+    prices.push(...priceChunk);
+    historyGroups.push(...historyChunk);
+  }
+
+  return buildFlipRows(prices, historyGroups)
+    .sort((a, b) => b.score - a.score)
+    .slice(0, TOP_RESULTS);
+}
+
+function buildFlipRows(
+  prices: PriceResponseRow[],
+  historyGroups: HistoryResponseGroup[],
+): FlipCandidateRow[] {
+  const historyByKey = new Map<string, HistoryResponseGroup["data"]>();
+  historyGroups.forEach((group) => {
+    const key = `${group.item_id}|${group.location}|${group.quality}`;
+    historyByKey.set(key, group.data ?? []);
+  });
+
+  const rows: FlipCandidateRow[] = [];
+  prices.forEach((entry) => {
+    const key = `${entry.item_id}|${entry.city}|${entry.quality}`;
+    const history = historyByKey.get(key) ?? [];
+    const candidate = computeFlipCandidate(entry, history);
+    if (!candidate) {
+      return;
+    }
+    rows.push({
+      ...candidate,
+      updatedAt: newestTimestamp([
+        entry.sell_price_min_date,
+        entry.sell_price_max_date,
+        entry.buy_price_min_date,
+        entry.buy_price_max_date,
+      ]),
+    });
+  });
+  return rows;
+}
+
+async function filteredItemIds(): Promise<string[]> {
+  if (filteredItemIdsCache) {
+    return filteredItemIdsCache;
+  }
+  const module = await import("../filtered-items-clean.json");
+  const list = module.default as FilteredItemEntry[];
+  const unique = new Set<string>();
+  list.forEach((row) => {
+    const id = row.uniqueName?.trim();
+    if (id) {
+      unique.add(id);
+    }
+  });
+  filteredItemIdsCache = [...unique];
+  return filteredItemIdsCache;
+}
+
+function chunkValues<T>(values: T[], size: number): T[][] {
+  const chunks: T[][] = [];
+  for (let index = 0; index < values.length; index += size) {
+    chunks.push(values.slice(index, index + size));
+  }
+  return chunks;
 }
 
 function toMessage(error: unknown): string {
