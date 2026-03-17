@@ -37,6 +37,16 @@ interface WorldMetaRow {
   Name?: string;
 }
 
+export class RateLimitError extends Error {
+  readonly retryAfterSeconds?: number;
+
+  constructor(message: string, retryAfterSeconds?: number) {
+    super(message);
+    this.name = "RateLimitError";
+    this.retryAfterSeconds = retryAfterSeconds;
+  }
+}
+
 function buildQuery(params: Record<string, string | undefined>): string {
   const search = new URLSearchParams();
   Object.entries(params).forEach(([key, value]) => {
@@ -45,6 +55,33 @@ function buildQuery(params: Record<string, string | undefined>): string {
     }
   });
   return search.toString() ? `?${search.toString()}` : "";
+}
+
+function parseRetryAfterSeconds(value: string | null): number | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const asNumber = Number(value);
+  if (Number.isFinite(asNumber) && asNumber >= 0) {
+    return Math.ceil(asNumber);
+  }
+  return undefined;
+}
+
+async function fetchJsonOrThrow<T>(url: string, requestName: string): Promise<T> {
+  const response = await fetch(url);
+  if (response.status === 429) {
+    const retryAfterSeconds = parseRetryAfterSeconds(response.headers.get("Retry-After"));
+    const retryHint = retryAfterSeconds ? ` Retry after ~${retryAfterSeconds}s.` : "";
+    throw new RateLimitError(
+      `${requestName} rate-limited (429).${retryHint}`,
+      retryAfterSeconds,
+    );
+  }
+  if (!response.ok) {
+    throw new Error(`${requestName} request failed (${response.status})`);
+  }
+  return (await response.json()) as T;
 }
 
 export async function fetchCurrentPrices(
@@ -59,11 +96,7 @@ export async function fetchCurrentPrices(
     qualities: qualities?.join(","),
   });
   const url = `${BASE_URLS[server]}/api/v2/stats/prices/${itemsParam}.json${query}`;
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Price request failed (${response.status})`);
-  }
-  return (await response.json()) as PriceResponseRow[];
+  return fetchJsonOrThrow<PriceResponseRow[]>(url, "Price");
 }
 
 export async function fetchHistory(
@@ -80,11 +113,7 @@ export async function fetchHistory(
     "time-scale": String(timeScale),
   });
   const url = `${BASE_URLS[server]}/api/v2/stats/history/${itemsParam}.json${query}`;
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`History request failed (${response.status})`);
-  }
-  return (await response.json()) as HistoryResponseGroup[];
+  return fetchJsonOrThrow<HistoryResponseGroup[]>(url, "History");
 }
 
 export async function fetchItemOptions(): Promise<SelectOption[]> {

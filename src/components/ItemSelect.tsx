@@ -42,7 +42,7 @@ export default function ItemSelect({
       />
       <select
         multiple={multi}
-        value={selected}
+        value={multi ? selected : (selected[0] ?? "")}
         size={8}
         onChange={(event) => {
           const values = [...event.target.selectedOptions].map((opt) => opt.value);

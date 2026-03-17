@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import {
+  RateLimitError,
   fetchCityOptions,
   fetchCurrentPrices,
   fetchHistory,
@@ -22,12 +23,14 @@ import { computeFlipCandidate, computeMarketMetrics } from "./utils/metrics";
 
 const TOP_RESULTS = 20;
 const ITEM_REQUEST_CHUNK_SIZE = 140;
+const ALL_QUALITY = 0;
+const QUALITY_VALUES = [1, 2, 3, 4, 5];
 let filteredItemIdsCache: string[] | null = null;
 
 export default function App() {
   const [mode, setMode] = useState<CompareMode>("item-vs-cities");
   const [server, setServer] = useState<ServerRegion>("west");
-  const [quality, setQuality] = useState<number>(1);
+  const [quality, setQuality] = useState<number>(ALL_QUALITY);
   const [itemOptions, setItemOptions] = useState<SelectOption[]>([]);
   const [cityOptions, setCityOptions] = useState<SelectOption[]>([]);
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
@@ -101,9 +104,10 @@ export default function App() {
       const itemIds = mode === "item-vs-cities" ? selectedItems.slice(0, 1) : selectedItems;
       const cities = mode === "items-vs-city" ? selectedCities.slice(0, 1) : selectedCities;
 
+      const requestedQualities = resolveQualities(quality);
       const [prices, history] = await Promise.all([
-        fetchCurrentPrices(server, itemIds, cities, [quality]),
-        fetchHistory(server, itemIds, cities, [quality], 24),
+        fetchCurrentPrices(server, itemIds, cities, requestedQualities),
+        fetchHistory(server, itemIds, cities, requestedQualities, 24),
       ]);
       setRows(buildViewRows(prices, history));
     } catch (loadError) {
@@ -205,10 +209,11 @@ async function loadBestFlipRows(
   const prices: PriceResponseRow[] = [];
   const historyGroups: HistoryResponseGroup[] = [];
   const chunks = chunkValues(candidateItemIds, ITEM_REQUEST_CHUNK_SIZE);
+  const requestedQualities = resolveQualities(quality);
   for (const itemChunk of chunks) {
     const [priceChunk, historyChunk] = await Promise.all([
-      fetchCurrentPrices(server, itemChunk, cities, [quality]),
-      fetchHistory(server, itemChunk, cities, [quality], 24),
+      fetchCurrentPrices(server, itemChunk, cities, requestedQualities),
+      fetchHistory(server, itemChunk, cities, requestedQualities, 24),
     ]);
     prices.push(...priceChunk);
     historyGroups.push(...historyChunk);
@@ -275,7 +280,20 @@ function chunkValues<T>(values: T[], size: number): T[][] {
   return chunks;
 }
 
+function resolveQualities(selectedQuality: number): number[] | undefined {
+  if (selectedQuality === ALL_QUALITY) {
+    return undefined;
+  }
+  return QUALITY_VALUES.includes(selectedQuality) ? [selectedQuality] : undefined;
+}
+
 function toMessage(error: unknown): string {
+  if (error instanceof RateLimitError) {
+    const retryHint = error.retryAfterSeconds
+      ? ` Please wait about ${error.retryAfterSeconds}s and try again.`
+      : " Please wait a moment and try again.";
+    return `Albion API rate limit reached.${retryHint}`;
+  }
   if (error instanceof Error) return error.message;
   return "Unexpected error while loading market data.";
 }
