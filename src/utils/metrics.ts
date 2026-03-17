@@ -18,6 +18,8 @@ export const MIN_ESTIMATED_DEPTH = 20;
 export const MAX_SUGGESTED_BUY_QUANTITY = 2000;
 export const SCORE_CAPTURE_RATIO = 0.2;
 export const DEPTH_MULTIPLIER_TARGET = 100;
+export const ROI_BLEND_WEIGHT = 0.35;
+export const ROI_SCORE_BASELINE = 10;
 
 export function computeMarketMetrics(
   buyPrice: number,
@@ -94,6 +96,12 @@ export function computeFlipCandidate(
   const baseScore = profitPerUnit * dailyVolume * SCORE_CAPTURE_RATIO;
   const depthMultiplier = Math.min(1, estimatedDepth / DEPTH_MULTIPLIER_TARGET);
   const adjustedScore = baseScore * depthMultiplier;
+  const volumeFactor = Math.min(2, Math.sqrt(dailyVolume / MIN_DAILY_VOLUME));
+  const profitPctPerDayAssumingCapture = marginPct * SCORE_CAPTURE_RATIO;
+  const capitalEfficiency = profitPctPerDayAssumingCapture * volumeFactor;
+  const roiAdjustedScore = adjustedScore * (capitalEfficiency / ROI_SCORE_BASELINE);
+  const blendedScore =
+    adjustedScore * (1 - ROI_BLEND_WEIGHT) + roiAdjustedScore * ROI_BLEND_WEIGHT;
 
   return {
     key: `${entry.item_id}|${entry.city}|${entry.quality}`,
@@ -106,8 +114,9 @@ export function computeFlipCandidate(
     marginPct: roundTo(marginPct, 1),
     dailyVolume,
     suggestedBuyQuantity,
+    capitalEfficiency: roundTo(capitalEfficiency, 2),
     potentialDailyProfit: Math.round(adjustedScore),
-    score: Math.round(adjustedScore),
+    score: Math.round(blendedScore),
     updatedAt: "",
   };
 }

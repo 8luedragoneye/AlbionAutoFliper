@@ -15,6 +15,7 @@ type SortKey =
   | "marginPct"
   | "dailyVolume"
   | "suggestedBuyQuantity"
+  | "capitalEfficiency"
   | "potentialDailyProfit"
   | "score";
 
@@ -91,10 +92,14 @@ export default function MarketTable({ mode, rows, loading, error }: MarketTableP
                   onClick={() => updateSort("suggestedBuyQuantity")}
                 />
                 <SortableHeader
+                  label="Capital Efficiency"
+                  onClick={() => updateSort("capitalEfficiency")}
+                />
+                <SortableHeader
                   label="Potential Daily Profit"
                   onClick={() => updateSort("potentialDailyProfit")}
                 />
-                <SortableHeader label="Score" onClick={() => updateSort("score")} />
+                <SortableHeader label="Blended Score" onClick={() => updateSort("score")} />
               </>
             ) : (
               <>
@@ -130,6 +135,7 @@ export default function MarketTable({ mode, rows, loading, error }: MarketTableP
                   <td>{(row as FlipCandidateRow).marginPct.toFixed(1)}%</td>
                   <td>{(row as FlipCandidateRow).dailyVolume}</td>
                   <td>{(row as FlipCandidateRow).suggestedBuyQuantity}</td>
+                  <td>{(row as FlipCandidateRow).capitalEfficiency.toFixed(2)}</td>
                   <td>{formatSilver((row as FlipCandidateRow).potentialDailyProfit)}</td>
                   <td>{formatSilver((row as FlipCandidateRow).score)}</td>
                 </>

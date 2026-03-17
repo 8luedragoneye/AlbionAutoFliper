@@ -66,6 +66,7 @@ export interface FlipCandidateRow {
   marginPct: number;
   dailyVolume: number;
   suggestedBuyQuantity: number;
+  capitalEfficiency: number;
   potentialDailyProfit: number;
   score: number;
   updatedAt: string;
