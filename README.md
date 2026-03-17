@@ -62,3 +62,4 @@ npm run preview
 - The API has rate limits; avoid aggressive polling.
 - Some item/city/quality combinations can return missing or zero values.
 - This app uses direct browser calls to public endpoints.
+- Best-flips table metric documentation: `README-best-flips-table.md`.

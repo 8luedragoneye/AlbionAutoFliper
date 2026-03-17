@@ -20,6 +20,9 @@ export const SCORE_CAPTURE_RATIO = 0.2;
 export const DEPTH_MULTIPLIER_TARGET = 100;
 export const ROI_BLEND_WEIGHT = 0.35;
 export const ROI_SCORE_BASELINE = 10;
+export const PENALTY_TARGET_QUANTITY = 50;
+export const PENALTY_TARGET_ORDER_PROFIT = 100000;
+export const MIN_PENALTY_FACTOR = 0.15;
 
 export function computeMarketMetrics(
   buyPrice: number,
@@ -102,6 +105,10 @@ export function computeFlipCandidate(
   const roiAdjustedScore = adjustedScore * (capitalEfficiency / ROI_SCORE_BASELINE);
   const blendedScore =
     adjustedScore * (1 - ROI_BLEND_WEIGHT) + roiAdjustedScore * ROI_BLEND_WEIGHT;
+  const estimatedOrderProfit = profitPerUnit * suggestedBuyQuantity;
+  const quantityPenalty = penaltyFactor(suggestedBuyQuantity, PENALTY_TARGET_QUANTITY);
+  const orderProfitPenalty = penaltyFactor(estimatedOrderProfit, PENALTY_TARGET_ORDER_PROFIT);
+  const penalizedScore = blendedScore * quantityPenalty * orderProfitPenalty;
 
   return {
     key: `${entry.item_id}|${entry.city}|${entry.quality}`,
@@ -116,9 +123,17 @@ export function computeFlipCandidate(
     suggestedBuyQuantity,
     capitalEfficiency: roundTo(capitalEfficiency, 2),
     potentialDailyProfit: Math.round(adjustedScore),
-    score: Math.round(blendedScore),
+    score: Math.round(penalizedScore),
     updatedAt: "",
   };
+}
+
+function penaltyFactor(value: number, target: number): number {
+  if (target <= 0) {
+    return 1;
+  }
+  const normalized = Math.min(1, Math.max(0, value / target));
+  return MIN_PENALTY_FACTOR + (1 - MIN_PENALTY_FACTOR) * normalized;
 }
 
 function roundTo(value: number, digits: number): number {
