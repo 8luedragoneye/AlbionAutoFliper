@@ -44,6 +44,21 @@ export default function ItemSelect({
         multiple={multi}
         value={multi ? selected : (selected[0] ?? "")}
         size={8}
+        onMouseDown={(event) => {
+          if (!multi) {
+            return;
+          }
+          const target = event.target as HTMLElement;
+          if (target.tagName !== "OPTION") {
+            return;
+          }
+          event.preventDefault();
+          const value = (target as HTMLOptionElement).value;
+          const next = selected.includes(value)
+            ? selected.filter((entry) => entry !== value)
+            : [...selected, value];
+          onChange(next);
+        }}
         onChange={(event) => {
           const values = [...event.target.selectedOptions].map((opt) => opt.value);
           onChange(multi ? values : values.slice(-1));
@@ -55,7 +70,21 @@ export default function ItemSelect({
           </option>
         ))}
       </select>
+      {multi ? (
+        <div className="selection-actions">
+          <button
+            type="button"
+            onClick={() => onChange(filteredOptions.map((option) => option.value))}
+          >
+            Select visible
+          </button>
+          <button type="button" onClick={() => onChange([])}>
+            Clear
+          </button>
+        </div>
+      ) : null}
       <small>{selected.length} selected</small>
+      {multi ? <small>Tip: click items to toggle selection.</small> : null}
     </div>
   );
 }

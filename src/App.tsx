@@ -29,7 +29,7 @@ let filteredItemIdsCache: string[] | null = null;
 
 export default function App() {
   const [mode, setMode] = useState<CompareMode>("item-vs-cities");
-  const [server, setServer] = useState<ServerRegion>("west");
+  const [server, setServer] = useState<ServerRegion>("europe");
   const [quality, setQuality] = useState<number>(ALL_QUALITY);
   const [itemOptions, setItemOptions] = useState<SelectOption[]>([]);
   const [cityOptions, setCityOptions] = useState<SelectOption[]>([]);

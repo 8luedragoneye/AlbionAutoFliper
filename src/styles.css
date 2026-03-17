@@ -96,6 +96,20 @@ input {
   color: #a9b4cd;
 }
 
+.selection-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.selection-actions button {
+  background: #24324a;
+  color: #e8efff;
+  border: 1px solid #38527d;
+  padding: 6px 10px;
+  border-radius: 8px;
+  cursor: pointer;
+}
+
 .hint {
   color: #a9b4cd;
 }
