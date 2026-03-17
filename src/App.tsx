@@ -19,13 +19,15 @@ import {
 } from "./api/types";
 import Filters from "./components/Filters";
 import MarketTable from "./components/MarketTable";
-import { computeFlipCandidate, computeMarketMetrics } from "./utils/metrics";
+import { computeFlipCandidate, computeMarketMetrics, isFreshPriceSnapshot } from "./utils/metrics";
 
 const TOP_RESULTS = 20;
 const ITEM_REQUEST_CHUNK_SIZE = 140;
 const ALL_QUALITY = 0;
 const QUALITY_VALUES = [1, 2, 3, 4, 5];
-let filteredItemIdsCache: string[] | null = null;
+let filteredItemMetadataCache:
+  | { ids: string[]; nameById: Map<string, string> }
+  | null = null;
 
 export default function App() {
   const [mode, setMode] = useState<CompareMode>("item-vs-cities");
@@ -91,11 +93,13 @@ export default function App() {
     setRows([]);
     try {
       if (mode === "best-flips-auto") {
+        const itemNameById = buildItemNameLookup(itemOptions);
         const bestFlipRows = await loadBestFlipRows(
           server,
           selectedCities,
           quality,
           itemOptions,
+          itemNameById,
         );
         setRows(bestFlipRows);
         return;
@@ -109,7 +113,7 @@ export default function App() {
         fetchCurrentPrices(server, itemIds, cities, requestedQualities),
         fetchHistory(server, itemIds, cities, requestedQualities, 24),
       ]);
-      setRows(buildViewRows(prices, history));
+      setRows(buildViewRows(prices, history, buildItemNameLookup(itemOptions)));
     } catch (loadError) {
       setError(toMessage(loadError));
     } finally {
@@ -152,6 +156,7 @@ export default function App() {
 function buildViewRows(
   prices: PriceResponseRow[],
   historyGroups: HistoryResponseGroup[],
+  itemNameById: Map<string, string>,
 ): MarketViewRow[] {
   const historyByKey = new Map<string, HistoryResponseGroup["data"]>();
   historyGroups.forEach((group) => {
@@ -159,9 +164,15 @@ function buildViewRows(
     historyByKey.set(key, group.data ?? []);
   });
 
-  return prices.map((entry) => {
+  return prices.flatMap((entry) => {
     const key = `${entry.item_id}|${entry.city}|${entry.quality}`;
     const history = historyByKey.get(key) ?? [];
+    if (
+      !isFreshPriceSnapshot(entry.buy_price_max_date) ||
+      !isFreshPriceSnapshot(entry.sell_price_min_date)
+    ) {
+      return [];
+    }
     const buyPrice = Math.max(0, entry.buy_price_max);
     const sellPrice = Math.max(0, entry.sell_price_min);
     const metrics = computeMarketMetrics(buyPrice, sellPrice, history);
@@ -172,19 +183,22 @@ function buildViewRows(
       entry.buy_price_max_date,
     ]);
 
-    return {
-      key,
-      itemId: entry.item_id,
-      city: entry.city,
-      quality: entry.quality,
-      buyPrice,
-      sellPrice,
-      silverProfit: metrics.silverProfit,
-      profitPercent: metrics.profitPercent,
-      itemsSoldPerDay: metrics.itemsSoldPerDay,
-      sellFrequency: metrics.sellFrequency,
-      updatedAt,
-    };
+    return [
+      {
+        key,
+        itemId: entry.item_id,
+        itemName: resolveDisplayItemName(entry.item_id, itemNameById),
+        city: entry.city,
+        quality: entry.quality,
+        buyPrice,
+        sellPrice,
+        silverProfit: metrics.silverProfit,
+        profitPercent: metrics.profitPercent,
+        itemsSoldPerDay: metrics.itemsSoldPerDay,
+        sellFrequency: metrics.sellFrequency,
+        updatedAt,
+      },
+    ];
   });
 }
 
@@ -199,12 +213,19 @@ async function loadBestFlipRows(
   cities: string[],
   quality: number,
   itemOptions: SelectOption[],
+  itemNameById: Map<string, string>,
 ): Promise<FlipCandidateRow[]> {
   const metadataItemIds = new Set(itemOptions.map((option) => option.value));
-  const candidateItemIds = (await filteredItemIds()).filter((id) => metadataItemIds.has(id));
+  const filteredItems = await filteredItemMetadata();
+  const candidateItemIds = filteredItems.ids.filter((id) => metadataItemIds.has(id));
   if (candidateItemIds.length === 0) {
     throw new Error("No candidate items available in filtered-items-clean.json.");
   }
+  filteredItems.nameById.forEach((name, id) => {
+    if (!itemNameById.has(id)) {
+      itemNameById.set(id, name);
+    }
+  });
 
   const prices: PriceResponseRow[] = [];
   const historyGroups: HistoryResponseGroup[] = [];
@@ -219,7 +240,7 @@ async function loadBestFlipRows(
     historyGroups.push(...historyChunk);
   }
 
-  return buildFlipRows(prices, historyGroups)
+  return buildFlipRows(prices, historyGroups, itemNameById)
     .sort((a, b) => b.score - a.score)
     .slice(0, TOP_RESULTS);
 }
@@ -227,6 +248,7 @@ async function loadBestFlipRows(
 function buildFlipRows(
   prices: PriceResponseRow[],
   historyGroups: HistoryResponseGroup[],
+  itemNameById: Map<string, string>,
 ): FlipCandidateRow[] {
   const historyByKey = new Map<string, HistoryResponseGroup["data"]>();
   historyGroups.forEach((group) => {
@@ -244,6 +266,7 @@ function buildFlipRows(
     }
     rows.push({
       ...candidate,
+      itemName: resolveDisplayItemName(candidate.itemId, itemNameById),
       updatedAt: newestTimestamp([
         entry.sell_price_min_date,
         entry.sell_price_max_date,
@@ -255,21 +278,64 @@ function buildFlipRows(
   return rows;
 }
 
-async function filteredItemIds(): Promise<string[]> {
-  if (filteredItemIdsCache) {
-    return filteredItemIdsCache;
+async function filteredItemMetadata(): Promise<{ ids: string[]; nameById: Map<string, string> }> {
+  if (filteredItemMetadataCache) {
+    return filteredItemMetadataCache;
   }
   const module = await import("../filtered-items-clean.json");
   const list = module.default as FilteredItemEntry[];
   const unique = new Set<string>();
+  const nameById = new Map<string, string>();
   list.forEach((row) => {
     const id = row.uniqueName?.trim();
     if (id) {
       unique.add(id);
+      const displayName = row.name?.trim();
+      if (displayName && !nameById.has(id)) {
+        nameById.set(id, displayName);
+      }
     }
   });
-  filteredItemIdsCache = [...unique];
-  return filteredItemIdsCache;
+  filteredItemMetadataCache = {
+    ids: [...unique],
+    nameById,
+  };
+  return filteredItemMetadataCache;
+}
+
+function buildItemNameLookup(itemOptions: SelectOption[]): Map<string, string> {
+  const lookup = new Map<string, string>();
+  itemOptions.forEach((option) => {
+    lookup.set(option.value, extractLabelName(option.label, option.value));
+  });
+  return lookup;
+}
+
+function extractLabelName(label: string, value: string): string {
+  const suffix = ` (${value})`;
+  return label.endsWith(suffix) ? label.slice(0, -suffix.length) : label;
+}
+
+function resolveDisplayItemName(itemId: string, itemNameById: Map<string, string>): string {
+  const enchantment = parseEnchantment(itemId);
+  const baseId = stripEnchantment(itemId);
+  const baseName = itemNameById.get(itemId) ?? itemNameById.get(baseId) ?? itemId;
+  if (enchantment === null) {
+    return baseName;
+  }
+  return `${baseName}.${enchantment}`;
+}
+
+function parseEnchantment(itemId: string): number | null {
+  const match = itemId.match(/@(\d+)$/);
+  if (!match) {
+    return null;
+  }
+  return Number(match[1]);
+}
+
+function stripEnchantment(itemId: string): string {
+  return itemId.replace(/@\d+$/, "");
 }
 
 function chunkValues<T>(values: T[], size: number): T[][] {

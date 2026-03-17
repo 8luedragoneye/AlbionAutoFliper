@@ -44,6 +44,7 @@ export interface MarketMetrics {
 export interface MarketViewRow {
   key: string;
   itemId: string;
+  itemName?: string;
   city: string;
   quality: number;
   buyPrice: number;
@@ -58,6 +59,7 @@ export interface MarketViewRow {
 export interface FlipCandidateRow {
   key: string;
   itemId: string;
+  itemName?: string;
   city: string;
   quality: number;
   buyPrice: number;

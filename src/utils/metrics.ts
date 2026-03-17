@@ -23,6 +23,7 @@ export const ROI_SCORE_BASELINE = 10;
 export const PENALTY_TARGET_QUANTITY = 50;
 export const PENALTY_TARGET_ORDER_PROFIT = 100000;
 export const MIN_PENALTY_FACTOR = 0.15;
+export const MAX_PRICE_AGE_HOURS = 24;
 
 export function computeMarketMetrics(
   buyPrice: number,
@@ -67,6 +68,13 @@ export function computeFlipCandidate(
   entry: PriceResponseRow,
   history: HistoryPoint[],
 ): FlipCandidateRow | null {
+  if (
+    !isFreshPriceSnapshot(entry.buy_price_max_date) ||
+    !isFreshPriceSnapshot(entry.sell_price_min_date)
+  ) {
+    return null;
+  }
+
   const dailyVolume = averageDailyVolume(history, HISTORY_WINDOW_DAYS);
   if (dailyVolume < MIN_DAILY_VOLUME || entry.sell_price_min <= entry.buy_price_max) {
     return null;
@@ -139,4 +147,19 @@ function penaltyFactor(value: number, target: number): number {
 function roundTo(value: number, digits: number): number {
   const factor = 10 ** digits;
   return Math.round(value * factor) / factor;
+}
+
+export function isFreshPriceSnapshot(
+  isoTimestamp: string,
+  maxAgeHours = MAX_PRICE_AGE_HOURS,
+): boolean {
+  if (!isoTimestamp) {
+    return false;
+  }
+  const timestamp = new Date(isoTimestamp).getTime();
+  if (!Number.isFinite(timestamp)) {
+    return false;
+  }
+  const ageMs = Date.now() - timestamp;
+  return ageMs >= 0 && ageMs <= maxAgeHours * 60 * 60 * 1000;
 }

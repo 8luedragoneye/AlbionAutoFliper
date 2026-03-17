@@ -124,7 +124,7 @@ export default function MarketTable({ mode, rows, loading, error }: MarketTableP
         <tbody>
           {sortedRows.map((row) => (
             <tr key={row.key}>
-              <td>{row.itemId}</td>
+              <td>{row.itemName ?? row.itemId}</td>
               <td>{row.city}</td>
               <td>{row.quality}</td>
               <td>{formatSilver(row.buyPrice)}</td>
@@ -190,6 +190,7 @@ function normalizedValue(row: MarketTableRow, key: SortKey, mode: CompareMode): 
     const flipRow = row as FlipCandidateRow;
     switch (key) {
       case "itemId":
+        return flipRow.itemName ?? flipRow.itemId;
       case "city":
         return flipRow[key];
       case "updatedAt":
@@ -201,6 +202,8 @@ function normalizedValue(row: MarketTableRow, key: SortKey, mode: CompareMode): 
 
   const compareRow = row as MarketViewRow;
   switch (key) {
+    case "itemId":
+      return compareRow.itemName ?? compareRow.itemId;
     case "profitPercent":
       return compareRow.profitPercent ?? -Infinity;
     case "sellFrequency":
