@@ -19,7 +19,14 @@ import {
 } from "./api/types";
 import Filters from "./components/Filters";
 import MarketTable from "./components/MarketTable";
+import ResourceComparatorTable from "./components/ResourceComparatorTable";
+import { buildItemNameLookup, resolveDisplayItemName } from "./utils/itemDisplay";
 import { computeFlipCandidate, computeMarketMetrics, isFreshPriceSnapshot } from "./utils/metrics";
+import {
+  ALL_RESOURCE_GROUP_IDS,
+  expandResourceGroupsToItemIds,
+  isResourceItemId,
+} from "./utils/resourceItems";
 
 const TOP_RESULTS = 20;
 const ITEM_REQUEST_CHUNK_SIZE = 140;
@@ -37,13 +44,30 @@ export default function App() {
   const [cityOptions, setCityOptions] = useState<SelectOption[]>([]);
   const [selectedItems, setSelectedItems] = useState<string[]>([]);
   const [selectedCities, setSelectedCities] = useState<string[]>([]);
+  const [selectedResourceGroupIds, setSelectedResourceGroupIds] = useState<string[]>([]);
   const [rows, setRows] = useState<MarketTableRow[]>([]);
+  const [resourcePriceRows, setResourcePriceRows] = useState<PriceResponseRow[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+
+  const itemNameById = useMemo(() => buildItemNameLookup(itemOptions), [itemOptions]);
+
+  const expandedResourceItemIds = useMemo(
+    () => expandResourceGroupsToItemIds(selectedResourceGroupIds, itemOptions),
+    [selectedResourceGroupIds, itemOptions],
+  );
 
   useEffect(() => {
     void loadMetadata();
   }, []);
+
+  useEffect(() => {
+    if (mode !== "resource-comparator" || itemOptions.length === 0) return;
+    setSelectedResourceGroupIds((prev) => {
+      if (prev.length > 0) return prev;
+      return ALL_RESOURCE_GROUP_IDS;
+    });
+  }, [mode, itemOptions]);
 
   const selectionHint = useMemo(() => {
     if (mode === "item-vs-cities") {
@@ -52,13 +76,25 @@ export default function App() {
     if (mode === "items-vs-city") {
       return "Pick 1+ items and exactly 1 city.";
     }
+    if (mode === "resource-comparator") {
+      return "Choose material types (ore, wood, …) and cities, then load. Tier × enchant matrix (quality ignored for resources).";
+    }
     return "Pick 1+ cities. Best-flip scan uses filtered-items-clean.json.";
   }, [mode]);
 
   const handleModeChange = (next: CompareMode) => {
     setMode(next);
     setRows([]);
+    setResourcePriceRows([]);
     setError(null);
+    if (next === "resource-comparator") {
+      if (cityOptions.length > 0) {
+        setSelectedCities(cityOptions.map((option) => option.value));
+      }
+      if (itemOptions.length > 0) {
+        setSelectedResourceGroupIds(ALL_RESOURCE_GROUP_IDS);
+      }
+    }
     if (next === "item-vs-cities" && selectedItems.length > 1) {
       setSelectedItems(selectedItems.slice(-1));
     }
@@ -91,9 +127,9 @@ export default function App() {
     setLoading(true);
     setError(null);
     setRows([]);
+    setResourcePriceRows([]);
     try {
       if (mode === "best-flips-auto") {
-        const itemNameById = buildItemNameLookup(itemOptions);
         const bestFlipRows = await loadBestFlipRows(
           server,
           selectedCities,
@@ -105,6 +141,25 @@ export default function App() {
         return;
       }
 
+      if (mode === "resource-comparator") {
+        const cities = selectedCities;
+        if (cities.length === 0) {
+          throw new Error("Select at least one city.");
+        }
+        const resourceIds = expandedResourceItemIds.filter((id) => isResourceItemId(id));
+        if (resourceIds.length === 0) {
+          throw new Error("Select at least one resource type with matching items in metadata.");
+        }
+        const prices: PriceResponseRow[] = [];
+        const chunks = chunkValues(resourceIds, ITEM_REQUEST_CHUNK_SIZE);
+        for (const itemChunk of chunks) {
+          const priceChunk = await fetchCurrentPrices(server, itemChunk, cities, undefined);
+          prices.push(...priceChunk);
+        }
+        setResourcePriceRows(prices);
+        return;
+      }
+
       const itemIds = mode === "item-vs-cities" ? selectedItems.slice(0, 1) : selectedItems;
       const cities = mode === "items-vs-city" ? selectedCities.slice(0, 1) : selectedCities;
 
@@ -113,7 +168,7 @@ export default function App() {
         fetchCurrentPrices(server, itemIds, cities, requestedQualities),
         fetchHistory(server, itemIds, cities, requestedQualities, 24),
       ]);
-      setRows(buildViewRows(prices, history, buildItemNameLookup(itemOptions)));
+      setRows(buildViewRows(prices, history, itemNameById));
     } catch (loadError) {
       setError(toMessage(loadError));
     } finally {
@@ -138,17 +193,35 @@ export default function App() {
         cityOptions={cityOptions}
         selectedItems={selectedItems}
         selectedCities={selectedCities}
+        selectedResourceGroupIds={selectedResourceGroupIds}
         isLoading={loading}
         onModeChange={handleModeChange}
         onServerChange={setServer}
         onQualityChange={setQuality}
         onItemsChange={setSelectedItems}
         onCitiesChange={setSelectedCities}
+        onResourceGroupChange={setSelectedResourceGroupIds}
         onLoad={loadMarketData}
       />
 
       <p className="hint">{selectionHint}</p>
-      <MarketTable mode={mode} rows={rows} loading={loading} error={error} />
+      {mode === "resource-comparator" ? (
+        loading ? (
+          <p className="status">Loading market data...</p>
+        ) : error ? (
+          <p className="status error">{error}</p>
+        ) : (
+          <ResourceComparatorTable
+            prices={resourcePriceRows}
+            cities={selectedCities}
+            selectedResourceIds={expandedResourceItemIds}
+            resourceGroupCount={selectedResourceGroupIds.length}
+            selectedResourceGroupIds={selectedResourceGroupIds}
+          />
+        )
+      ) : (
+        <MarketTable mode={mode} rows={rows} loading={loading} error={error} />
+      )}
     </main>
   );
 }
@@ -301,41 +374,6 @@ async function filteredItemMetadata(): Promise<{ ids: string[]; nameById: Map<st
     nameById,
   };
   return filteredItemMetadataCache;
-}
-
-function buildItemNameLookup(itemOptions: SelectOption[]): Map<string, string> {
-  const lookup = new Map<string, string>();
-  itemOptions.forEach((option) => {
-    lookup.set(option.value, extractLabelName(option.label, option.value));
-  });
-  return lookup;
-}
-
-function extractLabelName(label: string, value: string): string {
-  const suffix = ` (${value})`;
-  return label.endsWith(suffix) ? label.slice(0, -suffix.length) : label;
-}
-
-function resolveDisplayItemName(itemId: string, itemNameById: Map<string, string>): string {
-  const enchantment = parseEnchantment(itemId);
-  const baseId = stripEnchantment(itemId);
-  const baseName = itemNameById.get(itemId) ?? itemNameById.get(baseId) ?? itemId;
-  if (enchantment === null) {
-    return baseName;
-  }
-  return `${baseName}.${enchantment}`;
-}
-
-function parseEnchantment(itemId: string): number | null {
-  const match = itemId.match(/@(\d+)$/);
-  if (!match) {
-    return null;
-  }
-  return Number(match[1]);
-}
-
-function stripEnchantment(itemId: string): string {
-  return itemId.replace(/@\d+$/, "");
 }
 
 function chunkValues<T>(values: T[], size: number): T[][] {

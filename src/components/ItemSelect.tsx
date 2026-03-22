@@ -6,6 +6,10 @@ interface ItemSelectProps {
   selected: string[];
   onChange: (values: string[]) => void;
   multi: boolean;
+  /** Defaults to "Item" */
+  label?: string;
+  /** Defaults to "itemSearch" */
+  searchInputId?: string;
 }
 
 export default function ItemSelect({
@@ -13,6 +17,8 @@ export default function ItemSelect({
   selected,
   onChange,
   multi,
+  label = "Item",
+  searchInputId = "itemSearch",
 }: ItemSelectProps) {
   const [query, setQuery] = useState("");
 
@@ -32,9 +38,9 @@ export default function ItemSelect({
 
   return (
     <div className="filter-group">
-      <label htmlFor="itemSearch">Item</label>
+      <label htmlFor={searchInputId}>{label}</label>
       <input
-        id="itemSearch"
+        id={searchInputId}
         type="text"
         value={query}
         placeholder="Search item name or ID"
@@ -72,6 +78,9 @@ export default function ItemSelect({
       </select>
       {multi ? (
         <div className="selection-actions">
+          <button type="button" onClick={() => onChange(options.map((option) => option.value))}>
+            Select all
+          </button>
           <button
             type="button"
             onClick={() => onChange(filteredOptions.map((option) => option.value))}

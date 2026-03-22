@@ -29,6 +29,13 @@ export default function ModeToggle({ mode, onChange }: ModeToggleProps) {
       >
         Best Flips Auto
       </button>
+      <button
+        type="button"
+        className={mode === "resource-comparator" ? "active" : ""}
+        onClick={() => onChange("resource-comparator")}
+      >
+        Resource Comparator
+      </button>
     </div>
   );
 }

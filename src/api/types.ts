@@ -1,10 +1,20 @@
 export type ServerRegion = "west" | "east" | "europe";
 
-export type CompareMode = "item-vs-cities" | "items-vs-city" | "best-flips-auto";
+export type CompareMode =
+  | "item-vs-cities"
+  | "items-vs-city"
+  | "best-flips-auto"
+  | "resource-comparator";
 
 export interface SelectOption {
   value: string;
   label: string;
+}
+
+/** Resource comparator: one cell per item+city after merging all qualities */
+export interface MergedResourceCityPrice {
+  buy: number | null;
+  sell: number | null;
 }
 
 export interface PriceResponseRow {
